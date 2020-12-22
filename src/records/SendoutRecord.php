@@ -24,6 +24,7 @@ use yii\db\ActiveQuery;
  * @property string      $subject                    Subject
  * @property string      $notificationEmailAddress   Notification email address
  * @property string      $mailingListIds             Mailing list IDs
+ * @property string      $contactIds                 Contact IDs, instead of Mailing List Ids
  * @property string      $excludedMailingListIds     Excluded mailing list IDs
  * @property int         $recipients                 Recipients
  * @property int         $fails                      Fails

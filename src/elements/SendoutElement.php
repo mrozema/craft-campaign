@@ -59,6 +59,8 @@ use yii\base\InvalidConfigException;
  * @property string $fromNameEmailLabel
  * @property bool $isModifiable
  * @property MailingListElement[] $mailingLists
+ * @property ContactElement[] $contacts
+ * @property int $contactCount
  */
 class SendoutElement extends Element
 {
@@ -283,6 +285,7 @@ class SendoutElement extends Element
             'progress' => ['label' => Craft::t('campaign', 'Progress')],
             'sender' => ['label' => Craft::t('campaign', 'Sent By')],
             'mailingListIds' => ['label' => Craft::t('campaign', 'Mailing Lists')],
+            'contactIds' => ['label' => Craft::t('campaign', 'Contacts')],
             'sendDate' => ['label' => Craft::t('campaign', 'Send Date')],
             'lastSent' => ['label' => Craft::t('campaign', 'Last Sent')],
             'dateCreated' => ['label' => Craft::t('app', 'Date Created')],
@@ -392,6 +395,11 @@ class SendoutElement extends Element
     public $segmentIds;
 
     /**
+     * @var string contactIds
+     */
+    public $contactIds;
+
+    /**
      * @var int Recipients
      */
     public $recipients = 0;
@@ -440,6 +448,11 @@ class SendoutElement extends Element
      * @var MailingListElement[]|null
      */
     private $_mailingLists;
+
+    /**
+     * @var ContactElement[]|null
+     */
+    private $_contacts;
 
     /**
      * @var MailingListElement[]|null
@@ -502,6 +515,7 @@ class SendoutElement extends Element
         // Set the field labels
         $labels['campaignId'] = Craft::t('campaign', 'Campaign');
         $labels['mailingListIds'] = Craft::t('campaign', 'Mailing lists');
+        $labels['contactIds'] = Craft::t('campaign', 'Contacts');
         $labels['excludedMailingListIds'] = Craft::t('campaign', 'Excluded mailing lists');
         $labels['segmentIds'] = Craft::t('campaign', 'Segments');
 
@@ -661,6 +675,26 @@ class SendoutElement extends Element
     }
 
     /**
+     * Returns the sendout's contact IDs
+     *
+     * @return array
+     */
+    public function getContactIds(): array
+    {
+        return $this->contactIds ? explode(',', $this->contactIds) : [];
+    }
+
+    /**
+     * Returns the sendout's contact count
+     *
+     * @return int
+     */
+    public function getContactCount(): int
+    {
+        return count($this->getContactIds());
+    }
+
+    /**
      * Returns the sendout's mailing list count
      *
      * @return int
@@ -668,6 +702,22 @@ class SendoutElement extends Element
     public function getMailingListCount(): int
     {
         return count($this->getMailingListIds());
+    }
+
+    /**
+     * Returns the sendout's contacts
+     *
+     * @return ContactElement[]
+     */
+    public function getContacts(): array
+    {
+        if ($this->_contacts !== null) {
+            return $this->_contacts;
+        }
+
+        $this->_contacts = Campaign::$plugin->contacts->getContactsByIds($this->getContactIds());
+
+        return $this->_contacts;
     }
 
     /**
@@ -767,13 +817,13 @@ class SendoutElement extends Element
      *
      * @return array
      */
-    public function getPendingRecipients(): array
+    public function getPendingRecipients(?int $limit = null): array
     {
         if ($this->_pendingRecipients !== null) {
             return $this->_pendingRecipients;
         }
 
-        $this->_pendingRecipients = Campaign::$plugin->sendouts->getPendingRecipients($this);
+        $this->_pendingRecipients = Campaign::$plugin->sendouts->getPendingRecipients($this, $limit);
 
         return $this->_pendingRecipients;
     }

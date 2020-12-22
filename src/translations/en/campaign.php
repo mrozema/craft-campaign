@@ -476,6 +476,7 @@ return [
     'starts with' => '',
     'Status' => '',
     'Subject' => '',
+    'Unsubscribe URL Override' => '',
     'Subscribe Success Template' => '',
     'Subscribe Verification Email Subject' => '',
     'Subscribe Verification Email Template' => '',

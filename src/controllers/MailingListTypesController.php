@@ -124,6 +124,7 @@ class MailingListTypesController extends Controller
         $mailingListType->unsubscribeVerificationEmailSubject = $request->getBodyParam('unsubscribeVerificationEmailSubject', $mailingListType->unsubscribeVerificationEmailSubject);
         $mailingListType->unsubscribeVerificationEmailTemplate = $request->getBodyParam('unsubscribeVerificationEmailTemplate', $mailingListType->unsubscribeVerificationEmailTemplate);
         $mailingListType->unsubscribeSuccessTemplate = $request->getBodyParam('unsubscribeSuccessTemplate', $mailingListType->unsubscribeSuccessTemplate);
+        $mailingListType->unsubscribeUrlOverride = $request->getBodyParam('unsubscribeUrlOverride', $mailingListType->unsubscribeUrlOverride);
 
         // Set the field layout
         $fieldLayout = Craft::$app->getFields()->assembleLayoutFromPost();

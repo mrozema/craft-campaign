@@ -151,6 +151,7 @@ class SendoutElementQuery extends ElementQuery
             'campaign_sendouts.mailingListIds',
             'campaign_sendouts.excludedMailingListIds',
             'campaign_sendouts.segmentIds',
+            'campaign_sendouts.contactIds',
             'campaign_sendouts.recipients',
             'campaign_sendouts.fails',
             'campaign_sendouts.schedule',

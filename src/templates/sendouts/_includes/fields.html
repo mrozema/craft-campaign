@@ -103,6 +103,33 @@
 {% set input %}
     {% if editable %}
         {{ forms.elementSelect({
+            id: 'contactIds',
+            name: 'contactIds',
+            elementType: contactElementType,
+            selectionLabel: "Add a contact"|t('campaign'),
+            criteria: contactElementCriteria,
+            limit: 100,
+            elements: sendout.contactIds ? sendout.contacts,
+        }) }}
+    {% else %}
+        {% for contact in sendout.contacts %}
+            <span class="status {{ contact.status }}"></span><a href="{{ contact.cpEditUrl }}" class="go" target="_blank">{{ contact.email }}</a>
+            <br/>
+        {% endfor %}
+        {% if sendout.contacts|length == 0 %}
+            <p>-</p>
+        {% endif %}
+    {% endif %}
+{% endset %}
+{{ forms.field({
+    label: "Limit to Contacts"|t('campaign'),
+    instructions: "The contact(s) from the mailing list to send the campaign to."|t('campaign'),
+    errors: sendout.getErrors('contactIds')
+}, input) }}
+
+{% set input %}
+    {% if editable %}
+        {{ forms.elementSelect({
             id: 'excludedMailingListIds',
             name: 'excludedMailingListIds',
             elementType: mailingListElementType,

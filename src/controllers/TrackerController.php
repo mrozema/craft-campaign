@@ -6,6 +6,7 @@
 namespace putyourlightson\campaign\controllers;
 
 use craft\errors\DeprecationException;
+use craft\helpers\UrlHelper;
 use putyourlightson\campaign\base\BaseMessageController;
 use putyourlightson\campaign\Campaign;
 use putyourlightson\campaign\elements\ContactElement;
@@ -97,8 +98,7 @@ class TrackerController extends BaseMessageController
                     'campaign' => $sendout->getCampaign(),
                 ]);
 
-                $url .= strpos($url, '?') === false ? '?' : '&';
-                $url .= trim($queryStringParameters, '?&');
+                $url = UrlHelper::siteUrl($url, $queryStringParameters);
             }
         }
 

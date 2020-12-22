@@ -122,6 +122,16 @@
 
     <hr>
 
+    {{ forms.textField({
+        label: "Unsubscribe URL Override"|t('campaign'),
+        instructions: "Unsubscribe URL Override"|t('campaign'),
+        id: 'unsubscribeUrlOverride',
+        name: 'unsubscribeUrlOverride',
+        value: mailingListType.unsubscribeUrlOverride,
+        errors: mailingListType.getErrors('unsubscribeUrlOverride'),
+        autocomplete: true
+    }) }}
+
     {{ forms.lightswitchField({
         label: "Unsubscribe Form Allowed"|t('campaign'),
         instructions: "Whether contacts are allowed to unsubscribe themselves through an unsubscribe form."|t('campaign'),

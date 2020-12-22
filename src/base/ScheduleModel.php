@@ -69,6 +69,16 @@ abstract class ScheduleModel extends BaseModel implements ScheduleInterface
     }
 
     /**
+     * Get MySQL Interval from Interval Option
+     *
+     * @return array
+     */
+    public function getDbInterval(): string
+    {
+        return '';
+    }
+
+    /**
      * @inheritdoc
      */
     public function rules(): array
