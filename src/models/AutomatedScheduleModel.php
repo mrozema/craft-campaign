@@ -52,6 +52,29 @@ class AutomatedScheduleModel extends ScheduleModel
     }
 
     /**
+     * Get MySQL Interval from Interval Option
+     *
+     * @return array
+     */
+    public function getDbInterval(): string
+    {
+        $conversion = [
+            'minutes' => 'MINUTE',
+            'hours' => 'HOUR',
+            'days' => 'DAY',
+            'weeks' => 'WEEK',
+            'months' => 'MONTH',
+        ];
+
+        if ($conversion[$this->timeDelayInterval]) {
+            return "{$this->timeDelay} {$conversion[$this->timeDelayInterval]}";
+        }
+
+        return '';
+    }
+
+
+    /**
      * @inheritdoc
      */
     public function rules(): array

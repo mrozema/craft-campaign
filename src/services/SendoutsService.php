@@ -16,9 +16,13 @@ use DOMElement;
 use putyourlightson\campaign\Campaign;
 use putyourlightson\campaign\elements\ContactElement;
 use putyourlightson\campaign\elements\SendoutElement;
+use putyourlightson\campaign\elements\CampaignElement;
 use putyourlightson\campaign\events\SendoutEmailEvent;
 use putyourlightson\campaign\jobs\SendoutJob;
 use putyourlightson\campaign\models\AutomatedScheduleModel;
+use putyourlightson\campaign\models\RecurringScheduleModel;
+use putyourlightson\campaign\models\MailingListTypeModel;
+use putyourlightson\campaign\base\ScheduleModel;
 use putyourlightson\campaign\records\ContactCampaignRecord;
 use putyourlightson\campaign\records\ContactMailingListRecord;
 use putyourlightson\campaign\records\ContactRecord;
@@ -30,6 +34,7 @@ use craft\errors\ElementNotFoundException;
 use craft\helpers\Db;
 use craft\helpers\UrlHelper;
 use craft\mail\Mailer;
+use putyourlightson\campaign\models\ContactMailingListModel;
 use putyourlightson\campaign\records\SendoutRecord;
 use Throwable;
 use yii\base\Exception;
@@ -77,6 +82,11 @@ class SendoutsService extends Component
      * @var array
      */
     private $_links = [];
+
+    /**
+     * @var array
+     */
+    private $_mailingListTypes = [];
 
     // Public Methods
     // =========================================================================
@@ -156,7 +166,7 @@ class SendoutsService extends Component
      *
      * @return array
      */
-    public function getPendingRecipients(SendoutElement $sendout): array
+    public function getPendingRecipients(SendoutElement $sendout, ?int $limit = null): array
     {
         // Call for max power
         Campaign::$plugin->maxPowerLieutenant();
@@ -172,12 +182,20 @@ class SendoutsService extends Component
             ->groupBy('contactId')
             ->where($baseCondition);
 
+        if ($sendout->getContactCount() > 0) {
+            $query->andWhere([ 'contactId' => $sendout->getContactIds() ]);
+        }
+
         // Ensure contacts have not complained or bounced (in contact record)
         $query->innerJoin(ContactRecord::tableName().' contact', '[[contact.id]] = [[contactId]]')
             ->andWhere([
                 'contact.complained' => null,
                 'contact.bounced' => null,
             ]);
+        
+        // if (getenv('ENVIRONMENT') !== 'production') {
+        //     $query->andWhere(['like', 'contact.email', '%@paddling.com']);
+        // }
 
         // Exclude contacts subscribed to sendout's excluded mailing lists
         $query->andWhere(['not', ['contactId' => $this->_getExcludedMailingListRecipientsQuery($sendout)]]);
@@ -188,42 +206,37 @@ class SendoutsService extends Component
         // Exclude sent recipients
         $query->andWhere(['not', ['contactId' => $this->_getSentRecipientsQuery($sendout, $excludeSentTodayOnly)]]);
 
-        // Get contact IDs
-        $contactIds = $query->column();
+        if ($sendout->sendoutType == 'automated') {
+            $automatedSchedule = $sendout->schedule;
+            $query = ContactMailingListRecord::find()->select(['contactId', 'mailingListId', 'subscribed'])
+                ->from(['r' => $query])
+                ->where(['>', 'r.subscribed', SendoutRecord::find()->select('dateCreated')->where(['id' => $sendout->id])])
+                ->andWhere("DATE_ADD(r.subscribed, INTERVAL {$automatedSchedule->getDbInterval()}) < CURRENT_TIMESTAMP()");
+        }
+
 
         // Filter recipients by segments
         if ($sendout->segmentIds) {
+            // Get contact IDs
+            $contactIds = $query->column();
+
             foreach ($sendout->getSegments() as $segment) {
                 $contactIds = Campaign::$plugin->segments->getFilteredContactIds($segment, $contactIds);
             }
+
+            // Get recipients as array
+            $query = ContactMailingListRecord::find()
+                ->select(['contactId', 'min([[mailingListId]]) as mailingListId', 'min([[subscribed]]) as subscribed'])
+                ->groupBy('contactId')
+                ->where($baseCondition)
+                ->andWhere(['contactId' => $contactIds]);
         }
 
-        // Get recipients as array
-        $recipients = ContactMailingListRecord::find()
-            ->select(['contactId', 'min([[mailingListId]]) as mailingListId', 'min([[subscribed]]) as subscribed'])
-            ->groupBy('contactId')
-            ->where($baseCondition)
-            ->andWhere(['contactId' => $contactIds])
-            ->asArray()
-            ->all();
-
-        if ($sendout->sendoutType == 'automated') {
-            /** @var AutomatedScheduleModel $automatedSchedule */
-            $automatedSchedule = $sendout->schedule;
-
-            // Remove any contacts that do not meet the conditions
-            foreach ($recipients as $key => $recipient) {
-                $subscribedDateTime = DateTimeHelper::toDateTime($recipient['subscribed']);
-                $subscribedDateTimePlusDelay = $subscribedDateTime->modify('+'.$automatedSchedule->timeDelay.' '.$automatedSchedule->timeDelayInterval);
-
-                // If subscribed date was before sendout was created or time plus delay has not yet passed
-                if ($subscribedDateTime < $sendout->dateCreated || !DateTimeHelper::isInThePast($subscribedDateTimePlusDelay)) {
-                    unset($recipients[$key]);
-                }
-            }
+        if ($limit != null) {
+            $query->limit($limit);
         }
 
-        return $recipients;
+        return $query->asArray()->all();
     }
 
 
@@ -237,6 +250,60 @@ class SendoutsService extends Component
     public function getPendingRecipientCount(SendoutElement $sendout): int
     {
         return count($this->getPendingRecipients($sendout)) - $sendout->fails;
+    }
+
+    /**
+     * Saves and validates sendout
+     *
+     * @return array
+     */
+    public function saveSendout(SendoutElement $sendout, array $scheduleParams = null) 
+    {
+        if ($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring' ) {
+            if ($sendout->sendoutType == 'automated') {
+                $sendout->schedule = new AutomatedScheduleModel($scheduleParams);
+            }
+            else {
+                $sendout->schedule = new RecurringScheduleModel($scheduleParams);
+            }
+
+            // Convert end date and time of day or set to null
+            $sendout->schedule->endDate = DateTimeHelper::toDateTime($sendout->schedule->endDate) ?: null;
+            $sendout->schedule->timeOfDay = DateTimeHelper::toDateTime($sendout->schedule->timeOfDay) ?: null;
+
+            // Validate schedule
+            $sendout->schedule->validate();
+
+            if ($sendout->schedule->hasErrors()) {
+                return [
+                    'success' => false,
+                    'sendout' => $sendout
+                ];
+            }
+        }
+
+        $sendout->validate();
+
+        if ($sendout->hasErrors()) {
+            Craft::warning("Validation failed");
+            return [
+                'success' => false,
+                'sendout' => $sendout
+            ];
+        }
+
+        // Save it without propagating across all sites
+        if (!Craft::$app->getElements()->saveElement($sendout, true, false)) {
+            return [
+                'success' => false,
+                'sendout' => $sendout
+            ];
+        }
+
+        return [
+            'success' => true,
+            'sendout' => $sendout
+        ];
     }
 
     /**
@@ -337,33 +404,21 @@ class SendoutsService extends Component
         return $message->send();
     }
 
-    /**
-     * Sends an email
-     *
-     * @param SendoutElement $sendout
-     * @param ContactElement $contact
-     * @param int $mailingListId
-     *
-     * @throws Throwable
-     * @throws Exception
-     */
-    public function sendEmail(SendoutElement $sendout, ContactElement $contact, int $mailingListId)
+    private function getMailingListType(int $mailingListId) : MailingListTypeModel
     {
-        if ($sendout->getIsSendable() === false) {
-            return;
+        // Get mailing list or memoize it
+        if (empty($this->_mailingListTypes[$mailingListId])) {
+            $ml = Campaign::$plugin->mailingLists->getMailingListById($mailingListId);
+            if ($ml) {
+                $this->_mailingListTypes[$mailingListId] = $ml->getMailingListType();
+            }
         }
 
-        if ($contact->canReceiveEmail() === false) {
-            return;
-        }
+        return $this->_mailingListTypes[$mailingListId];
+    }
 
-        // Get campaign
-        $campaign = $sendout->getCampaign();
-
-        if ($campaign === null) {
-            return;
-        }
-
+    public function sendGeneratedEmail(CampaignElement $campaign, SendoutElement $sendout, ContactElement $contact, int $mailingListId, string $subject, string $htmlBody, string $plaintextBody)
+    {
         /** @var ContactCampaignRecord|null $contactCampaignRecord */
         $contactCampaignRecord = ContactCampaignRecord::find()
             ->where([
@@ -394,15 +449,14 @@ class SendoutsService extends Component
         $contactCampaignRecord->campaignId = $campaign->id;
         $contactCampaignRecord->mailingListId = $mailingListId;
 
-        // Get subject
-        $subject = Craft::$app->getView()->renderString($sendout->subject, ['contact' => $contact]);
-
-        // Get body
-        $htmlBody = $campaign->getHtmlBody($contact, $sendout);
-        $plaintextBody = $campaign->getPlaintextBody($contact, $sendout);
-
+        // Get Unsubscribe link
+        $mailingListType = $this->getMailingListType($mailingListId);
+        $unsubscribeUrl = $mailingListType && $mailingListType->unsubscribeUrlOverride 
+            ? Craft::$app->getView()->renderString($mailingListType->unsubscribeUrlOverride, ['contact' => $contact, 'sendout' => $sendout])
+            : $contact->getUnsubscribeUrl($sendout);
+        
         // Convert links in HTML body
-        $htmlBody = $this->_convertLinks($htmlBody, $contact, $sendout);
+        $htmlBody = $this->_convertLinks($htmlBody, $contact, $sendout, $unsubscribeUrl);
 
         // Add tracking image to HTML body
         $path = Craft::$app->getConfig()->getGeneral()->actionTrigger.'/campaign/t/open';
@@ -489,6 +543,48 @@ class SendoutsService extends Component
                 'success' => $success,
             ]));
         }
+    }
+
+    /**
+     * Sends an email
+     *
+     * @param SendoutElement $sendout
+     * @param ContactElement $contact
+     * @param int $mailingListId
+     *
+     * @throws Throwable
+     * @throws Exception
+     */
+    public function sendEmail(SendoutElement $sendout, ContactElement $contact, int $mailingListId)
+    {
+        if ($sendout->getIsSendable() === false) {
+            return;
+        }
+
+        if ($contact->canReceiveEmail() === false) {
+            return;
+        }
+
+        // Return if contact has complained or bounced
+        if ($contact->complained !== null || $contact->bounced !== null) {
+            return;
+        }
+
+        // Get campaign
+        $campaign = $sendout->getCampaign();
+
+        if ($campaign === null) {
+            return;
+        }
+
+        // Get subject
+        $subject = Craft::$app->getView()->renderString($sendout->subject, ['contact' => $contact]);
+
+        // Get body
+        $htmlBody = $campaign->getHtmlBody($contact, $sendout);
+        $plaintextBody = $campaign->getPlaintextBody($contact, $sendout);
+
+        $this->sendGeneratedEmail($campaign, $sendout, $contact, $mailingListId, $subject, $htmlBody, $plaintextBody);
     }
 
     /**
@@ -586,23 +682,9 @@ class SendoutsService extends Component
             }
         }
 
-        // Get campaign
+        $this->_updateSendoutRecord($sendout, ['sendStatus']);
+        
         $campaign = $sendout->getCampaign();
-
-        if ($campaign !== null) {
-            // Update HTML and plaintext body
-            $contact = new ContactElement();
-            $sendout->htmlBody = $campaign->getHtmlBody($contact, $sendout);
-            $sendout->plaintextBody = $campaign->getPlaintextBody($contact, $sendout);
-
-            if (Craft::$app->getDb()->getIsMysql()) {
-                // Encode any 4-byte UTF-8 characters
-                $sendout->htmlBody = StringHelper::encodeMb4($sendout->htmlBody);
-                $sendout->plaintextBody = StringHelper::encodeMb4($sendout->plaintextBody);
-            }
-        }
-
-        $this->_updateSendoutRecord($sendout, ['sendStatus', 'htmlBody', 'plaintextBody']);
 
         // Update campaign recipients
         $recipients = ContactCampaignRecord::find()
@@ -752,7 +834,7 @@ class SendoutsService extends Component
      * @return string
      * @throws Exception
      */
-    private function _convertLinks(string $body, ContactElement $contact, SendoutElement $sendout): string
+    private function _convertLinks(string $body, ContactElement $contact, SendoutElement $sendout, string $unsubscribeUrl = null): string
     {
         // Get base URL
         $path = Craft::$app->getConfig()->getGeneral()->actionTrigger.'/campaign/t/click';
@@ -767,6 +849,11 @@ class SendoutsService extends Component
         /** @var DOMElement[] $elements*/
         $elements = $dom->getElementsByTagName('a');
 
+        $unsubscribeLink = $dom->getElementById('unsubscribe-url');
+        if ($unsubscribeLink && $unsubscribeUrl) {
+            $unsubscribeLink->setAttribute('href', $unsubscribeUrl); 
+        }
+
         foreach ($elements as $element) {
             $url = $element->getAttribute('href');
             $title = $element->getAttribute('title');
@@ -775,6 +862,8 @@ class SendoutsService extends Component
             if (strpos($url, 'http') === 0) {
                 // Ignore if unsubscribe link
                 if (preg_match('/\/campaign\/(t|tracker)\/unsubscribe/i', $url)) {
+                    continue;
+                } elseif ($element->getAttribute('id') == 'unsubscribe-url') {
                     continue;
                 }
 

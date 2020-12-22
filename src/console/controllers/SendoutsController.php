@@ -22,7 +22,6 @@ class SendoutsController extends Controller
 {
     // Public Methods
     // =========================================================================
-
     /**
      * Queues pending sendouts.
      *

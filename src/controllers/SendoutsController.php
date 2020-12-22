@@ -12,6 +12,7 @@ use craft\helpers\DateTimeHelper;
 use craft\web\Controller;
 use craft\web\View;
 use DateTime;
+use putyourlightson\campaign\base\ScheduleModel;
 use putyourlightson\campaign\Campaign;
 use putyourlightson\campaign\elements\ContactElement;
 use putyourlightson\campaign\elements\SegmentElement;
@@ -389,48 +390,23 @@ class SendoutsController extends Controller
         $sendout->segmentIds = $request->getBodyParam('segmentIds', $sendout->segmentIds);
         $sendout->segmentIds = is_array($sendout->segmentIds) ? implode(',', $sendout->segmentIds) : '';
 
+        $sendout->contactIds = $request->getBodyParam('contactIds', $sendout->contactIds);
+        $sendout->contactIds = is_array($sendout->contactIds) ? implode(',', $sendout->contactIds) : '';
+
         // Convert send date
         $sendout->sendDate = $request->getBodyParam('sendDate', $sendout->sendDate);
         $sendout->sendDate = DateTimeHelper::toDateTime($sendout->sendDate);
         $sendout->sendDate = $sendout->sendDate ?: new DateTime();
 
-        if ($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring') {
-            $schedule = $request->getBodyParam('schedule');
-
-            if ($sendout->sendoutType == 'automated') {
-                $sendout->schedule = new AutomatedScheduleModel($schedule);
-            }
-            else {
-                $sendout->schedule = new RecurringScheduleModel($schedule);
-            }
-
-            // Convert end date and time of day or set to null
-            $sendout->schedule->endDate = DateTimeHelper::toDateTime($sendout->schedule->endDate) ?: null;
-            $sendout->schedule->timeOfDay = DateTimeHelper::toDateTime($sendout->schedule->timeOfDay) ?: null;
-
-            // Validate schedule and sendout
-            $sendout->schedule->validate();
-            $sendout->validate();
-
-            // If errors then send the sendout back to the template
-            if ($sendout->schedule->hasErrors() || $sendout->hasErrors()) {
-                Craft::$app->getSession()->setError(Craft::t('campaign', 'Couldn’t save sendout.'));
-
-                Craft::$app->getUrlManager()->setRouteParams([
-                    'sendout' => $sendout,
-                ]);
-
-                return null;
-            }
-        }
+        $status = Campaign::$plugin->sendouts->saveSendout($sendout, $request->getBodyParam('schedule'));
 
         // Save it without propagating across all sites
-        if (!Craft::$app->getElements()->saveElement($sendout, true, false)) {
+        if ($status['success'] == false) {
             Craft::$app->getSession()->setError(Craft::t('campaign', 'Couldn’t save sendout.'));
 
             // Send the sendout back to the template
             Craft::$app->getUrlManager()->setRouteParams([
-                'sendout' => $sendout,
+                'sendout' => $status['sendout']
             ]);
 
             return null;
@@ -438,7 +414,7 @@ class SendoutsController extends Controller
 
         Craft::$app->getSession()->setNotice(Craft::t('campaign', 'Sendout saved.'));
 
-        return $this->redirectToPostedUrl($sendout);
+        return $this->redirectToPostedUrl($status['sendout']);
     }
 
     /**

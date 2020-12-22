@@ -90,6 +90,11 @@ class MailingListTypeModel extends BaseModel
     public $subscribeSuccessTemplate;
 
     /**
+     * @var string|null Unsubscribe URL Override
+     */
+    public $unsubscribeUrlOverride;
+
+    /**
      * @var bool Unsubscribe form allowed
      */
     public $unsubscribeFormAllowed = false;

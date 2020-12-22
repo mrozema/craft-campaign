@@ -5,6 +5,7 @@
 
 namespace putyourlightson\campaign\services;
 
+use Craft;
 use craft\records\Element_SiteSettings;
 use DateTime;
 use putyourlightson\campaign\Campaign;
@@ -58,6 +59,31 @@ class CampaignsService extends Component
             ->status(null)
             ->one();
 
+        return $campaign;
+    }
+
+    /**
+     * Returns campaign by slug
+     *
+     * @param string $campaignSlug
+     *
+     * @return CampaignElement|null
+     */
+    public function getCampaignBySlug(string $campaignSlug): ?CampaignElement
+    {
+        // Get site ID from element site settings
+        $el = Element_SiteSettings::find()
+            ->where(['slug' => $campaignSlug])->one();
+
+        if ($el === null) {
+            return null;
+        }
+
+        $campaign = CampaignElement::find()
+            ->id($el->elementId)
+            ->siteId($el->siteId)
+            ->one();
+        
         return $campaign;
     }
 

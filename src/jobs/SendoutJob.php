@@ -84,6 +84,13 @@ class SendoutJob extends BaseJob implements RetryableJobInterface
             return;
         }
 
+        // Get campaign
+        $campaign = $sendout->getCampaign();
+
+        if ($campaign === null) {
+            return;
+        }
+
         // Fire a before event
         $event = new SendoutEvent([
             'sendout' => $sendout,
@@ -112,12 +119,22 @@ class SendoutJob extends BaseJob implements RetryableJobInterface
         Campaign::$plugin->sendouts->prepareSending($sendout);
 
         // Get pending recipients
-        $pendingRecipients = $sendout->getPendingRecipients();
+        $pendingRecipients = $sendout->getPendingRecipients($settings->maxBatchSize);
 
         $count = 0;
-        $batchSize = min(count($pendingRecipients) + 1, $settings->maxBatchSize);
+        $pendingRecipientsCount = count($pendingRecipients);
+        $batchSize = min($pendingRecipientsCount + 1, $settings->maxBatchSize);
+        Craft::warning("Sending to {$batchSize}. Pending Recipients: {$pendingRecipientsCount}, Max Batch Size: {$settings->maxBatchSize}");
+
+        // Get subject
+        $subject = $sendout->subject;
+
+        // Get body
+        $htmlBody = $campaign->getHtmlBody(null, $sendout);
+        $plaintextBody = $campaign->getPlaintextBody(null, $sendout);
 
         foreach ($pendingRecipients as $pendingRecipient) {
+            $time_start = microtime(true);
             $count++;
             $this->setProgress($queue, $count / $batchSize);
 
@@ -128,7 +145,10 @@ class SendoutJob extends BaseJob implements RetryableJobInterface
             }
 
             // Send email
-            Campaign::$plugin->sendouts->sendEmail($sendout, $contact, $pendingRecipient['mailingListId']);
+            Campaign::$plugin->sendouts->sendGeneratedEmail($campaign, $sendout, $contact, $pendingRecipient['mailingListId'], $subject, $htmlBody, $plaintextBody);
+
+            $time = microtime(true) - $time_start;
+            Craft::warning("{$contact->email} took {$time} seconds");
 
             // If we're beyond the memory limit or time limit or max batch size has been reached
             if (($memoryLimit && memory_get_usage(true) > $memoryLimit)

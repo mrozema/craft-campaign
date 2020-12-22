@@ -207,6 +207,11 @@ class SettingsModel extends Model
      */
     public $extraSegmentFieldOperators = [];
 
+    /**
+     * @var string|null Unsubscribe URL Override
+     */
+    public $unsubscribeUrlOverride;
+
     // Public Methods
     // =========================================================================
 
