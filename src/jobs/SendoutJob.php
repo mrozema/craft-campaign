@@ -126,9 +126,6 @@ class SendoutJob extends BaseJob implements RetryableJobInterface
         $batchSize = min($pendingRecipientsCount + 1, $settings->maxBatchSize);
         Craft::warning("Sending to {$batchSize}. Pending Recipients: {$pendingRecipientsCount}, Max Batch Size: {$settings->maxBatchSize}");
 
-        // Get subject
-        $subject = $sendout->subject;
-
         // Get body
         $htmlBody = $campaign->getHtmlBody(null, $sendout);
         $plaintextBody = $campaign->getPlaintextBody(null, $sendout);
@@ -144,8 +141,14 @@ class SendoutJob extends BaseJob implements RetryableJobInterface
                 continue;
             }
 
+            $subject = Craft::$app->getView()->renderString($sendout->subject, ['contact' => $contact]);
+
             // Send email
             Campaign::$plugin->sendouts->sendGeneratedEmail($campaign, $sendout, $contact, $pendingRecipient['mailingListId'], $subject, $htmlBody, $plaintextBody);
+
+            if ($sendout->sendoutType == 'transactional') {
+                Campaign::$plugin->sendouts->deletePendingTransactionalContactSendout($sendout, $contact);
+            }
 
             $time = microtime(true) - $time_start;
             Craft::warning("{$contact->email} took {$time} seconds");

@@ -8,6 +8,7 @@ namespace putyourlightson\campaign\console\controllers;
 use Craft;
 use craft\helpers\Console;
 use putyourlightson\campaign\Campaign;
+use putyourlightson\campaign\models\PendingTransactionalSendoutModel;
 use yii\console\Controller;
 use yii\console\ExitCode;
 
@@ -47,6 +48,33 @@ class SendoutsController extends Controller
 
         Craft::$app->getQueue()->run();
 
+        return ExitCode::OK;
+    }
+
+    public function actionAddContactToTransactionalSendout(string $email, int $sendoutId): int
+    {
+        $contact = Campaign::$plugin->contacts->getContactByEmail($email);
+
+        if (!$contact) {
+            $this->stderr(Craft::t('campaign', '{email} is not a contact.', ['email' => $email]).PHP_EOL, Console::FG_RED);
+            return ExitCode::DATAERR;
+        }
+
+        $sendout = Campaign::$plugin->sendouts->getSendoutById($sendoutId);
+
+        if (!$sendout) {
+            $this->stderr(Craft::t('campaign', '{sendoutId} is not a valid sendout ID.', ['sendoutId' => $sendoutId]).PHP_EOL, Console::FG_RED);
+        }
+
+        $transactionalSendout = new PendingTransactionalSendoutModel();
+        $transactionalSendout->contactId = $contact->id;
+        $transactionalSendout->sendoutId = $sendout->id;
+        
+        if (!Campaign::$plugin->sendouts->savePendingTransactionalSendout($transactionalSendout)) {
+            return ExitCode::DATAERR;
+        }
+
+        $this->stdout(Craft::t('campaign', 'Pending sendout created for {email} on {title}.', ['email' => $email, 'title' => $sendout->title]).PHP_EOL, Console::FG_GREEN);
         return ExitCode::OK;
     }
 

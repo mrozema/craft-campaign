@@ -176,6 +176,18 @@ class Install extends Migration
             ]);
         }
 
+        if (!$this->db->tableExists('{{%campaign_pendingtransactionalsendouts}}')) {
+            $this->createTable('{{%campaign_pendingtransactionalsendouts}}', [
+                'id' => $this->primaryKey(),
+                'pid' => $this->uid(),
+                'contactId' => $this->integer()->notNull(),
+                'sendoutId' => $this->integer()->notNull(),
+                'dateCreated' => $this->dateTime()->notNull(),
+                'dateUpdated' => $this->dateTime()->notNull(),
+                'uid' => $this->uid(),
+            ]);
+        }
+
         if (!$this->db->tableExists('{{%campaign_contacts_campaigns}}')) {
             $this->createTable('{{%campaign_contacts_campaigns}}', [
                 'id' => $this->primaryKey(),
@@ -329,6 +341,7 @@ class Install extends Migration
         $this->createIndex(null, '{{%campaign_contacts}}', 'cid', true);
         $this->createIndex(null, '{{%campaign_pendingcontacts}}', 'pid', true);
         $this->createIndex(null, '{{%campaign_pendingcontacts}}', 'email, mailingListId', false);
+        $this->createIndex(null, '{{%campaign_pendingtransacionalsendouts}}', 'pid', true);
         $this->createIndex(null, '{{%campaign_contacts_campaigns}}', 'contactId, sendoutId', true);
         $this->createIndex(null, '{{%campaign_contacts_mailinglists}}', 'contactId, mailingListId', true);
         $this->createIndex(null, '{{%campaign_contacts_mailinglists}}', 'subscriptionStatus', false);
@@ -370,6 +383,8 @@ class Install extends Migration
         $this->addForeignKey(null, '{{%campaign_sendouts}}', 'id', '{{%elements}}', 'id', 'CASCADE');
         $this->addForeignKey(null, '{{%campaign_sendouts}}', 'campaignId', '{{%campaign_campaigns}}', 'id', 'CASCADE');
         $this->addForeignKey(null, '{{%campaign_sendouts}}', 'senderId', '{{%users}}', 'id', 'SET NULL');
+        $this->addForeignKey(null, '{{%campaign_pendingtransacionalsendouts}}', 'sendoutId', '{{%campaign_sendouts}}', 'id', 'CASCADE');
+        $this->addForeignKey(null, '{{%campaign_pendingtransacionalsendouts}}', 'contactId', '{{%campaign_contacts}}', 'id', 'CASCADE');
     }
 
     /**
@@ -432,6 +447,7 @@ class Install extends Migration
         $this->dropTableIfExists('{{%campaign_segments}}');
         $this->dropTableIfExists('{{%campaign_contacts}}');
         $this->dropTableIfExists('{{%campaign_pendingcontacts}}');
+        $this->dropTableIfExists('{{%campaign_pendingtransactionalsendouts}}');
     }
 
     /**

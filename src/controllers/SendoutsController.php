@@ -12,7 +12,6 @@ use craft\helpers\DateTimeHelper;
 use craft\web\Controller;
 use craft\web\View;
 use DateTime;
-use putyourlightson\campaign\base\ScheduleModel;
 use putyourlightson\campaign\Campaign;
 use putyourlightson\campaign\elements\ContactElement;
 use putyourlightson\campaign\elements\SegmentElement;
@@ -21,6 +20,7 @@ use putyourlightson\campaign\elements\CampaignElement;
 use putyourlightson\campaign\elements\MailingListElement;
 use putyourlightson\campaign\models\AutomatedScheduleModel;
 use putyourlightson\campaign\models\RecurringScheduleModel;
+use putyourlightson\campaign\models\TransactionalScheduleModel;
 use Throwable;
 use yii\base\Exception;
 use yii\base\InvalidConfigException;
@@ -210,6 +210,9 @@ class SendoutsController extends Controller
         elseif ($sendoutType == 'recurring') {
             $sendout->schedule = new RecurringScheduleModel($sendout->schedule);
         }
+        elseif ($sendoutType == 'transactional') {
+            $sendout->schedule = new TransactionalScheduleModel($sendout->schedule);
+        }
 
         // Set the variables
         // ---------------------------------------------------------------------
@@ -227,7 +230,7 @@ class SendoutsController extends Controller
             'siteId' => $sendout->site->id,
             'status' => [CampaignElement::STATUS_SENT, CampaignElement::STATUS_PENDING],
         ];
-
+        
         // Mailing list element selector variables
         $variables['mailingListElementType'] = MailingListElement::class;
         $variables['mailingListElementCriteria'] = [
@@ -398,15 +401,46 @@ class SendoutsController extends Controller
         $sendout->sendDate = DateTimeHelper::toDateTime($sendout->sendDate);
         $sendout->sendDate = $sendout->sendDate ?: new DateTime();
 
-        $status = Campaign::$plugin->sendouts->saveSendout($sendout, $request->getBodyParam('schedule'));
+        if ($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring' || $sendout->sendoutType == 'transactional') {
+            $schedule = $request->getBodyParam('schedule');
+
+            if ($sendout->sendoutType == 'automated') {
+                $sendout->schedule = new AutomatedScheduleModel($schedule);
+            }
+            elseif ($sendout->sendoutType == 'recurring') {
+                $sendout->schedule = new RecurringScheduleModel($schedule);
+            }
+            elseif ($sendout->sendoutType == 'transactional') {
+                $sendout->schedule = new TransactionalScheduleModel($schedule);
+            }
+
+            // Convert end date and time of day or set to null
+            $sendout->schedule->endDate = DateTimeHelper::toDateTime($sendout->schedule->endDate) ?: null;
+            $sendout->schedule->timeOfDay = DateTimeHelper::toDateTime($sendout->schedule->timeOfDay) ?: null;
+
+            // Validate schedule and sendout
+            $sendout->schedule->validate();
+            $sendout->validate();
+
+            // If errors then send the sendout back to the template
+            if ($sendout->schedule->hasErrors() || $sendout->hasErrors()) {
+                Craft::$app->getSession()->setError(Craft::t('campaign', 'Couldn’t save sendout.'));
+
+                Craft::$app->getUrlManager()->setRouteParams([
+                    'sendout' => $sendout,
+                ]);
+
+                return null;
+            }
+        }
 
         // Save it without propagating across all sites
-        if ($status['success'] == false) {
+        if (!Craft::$app->getElements()->saveElement($sendout, true, false)) {
             Craft::$app->getSession()->setError(Craft::t('campaign', 'Couldn’t save sendout.'));
 
             // Send the sendout back to the template
             Craft::$app->getUrlManager()->setRouteParams([
-                'sendout' => $status['sendout']
+                'sendout' => $sendout,
             ]);
 
             return null;
@@ -414,7 +448,7 @@ class SendoutsController extends Controller
 
         Craft::$app->getSession()->setNotice(Craft::t('campaign', 'Sendout saved.'));
 
-        return $this->redirectToPostedUrl($status['sendout']);
+        return $this->redirectToPostedUrl($sendout);
     }
 
     /**

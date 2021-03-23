@@ -202,6 +202,11 @@
     {% include 'campaign/sendouts/_includes/schedule/recurring' %}
     <hr/>
 
+{% elseif sendout.sendoutType == 'transactional' %}
+
+    {% include 'campaign/sendouts/_includes/schedule/dates' %}
+    <hr/>
+
 {% endif %}
 
 {% set input %}

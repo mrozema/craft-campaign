@@ -17,6 +17,7 @@ use putyourlightson\campaign\elements\actions\CancelSendouts;
 use putyourlightson\campaign\helpers\StringHelper;
 use putyourlightson\campaign\models\AutomatedScheduleModel;
 use putyourlightson\campaign\models\RecurringScheduleModel;
+use putyourlightson\campaign\models\TransactionalScheduleModel;
 use putyourlightson\campaign\records\SendoutRecord;
 
 use Craft;
@@ -94,6 +95,7 @@ class SendoutElement extends Element
         if (Campaign::$plugin->getIsPro()) {
             $sendoutTypes['automated'] = Craft::t('campaign', 'Automated');
             $sendoutTypes['recurring'] = Craft::t('campaign', 'Recurring');
+            $sendoutTypes['transactional'] = Craft::t('campaign', 'Transactional');
         }
 
         return $sendoutTypes;
@@ -499,6 +501,9 @@ class SendoutElement extends Element
         elseif ($this->sendoutType == 'recurring') {
             $this->schedule = new RecurringScheduleModel(Json::decode($this->schedule));
         }
+        elseif ($this->sendoutType == 'transactional') {
+            $this->schedule = new TransactionalScheduleModel(Json::decode($this->schedule));
+        }
     }
 
     /**
@@ -623,7 +628,7 @@ class SendoutElement extends Element
      */
     public function getProgress(): string
     {
-        if ($this->sendStatus == self::STATUS_DRAFT || $this->sendoutType == 'automated' || $this->sendoutType == 'recurring') {
+        if ($this->sendStatus == self::STATUS_DRAFT || $this->sendoutType == 'automated' || $this->sendoutType == 'recurring' || $this->sendoutType == 'transactional') {
             return '';
         }
 
@@ -933,7 +938,7 @@ class SendoutElement extends Element
      */
     public function getCanSendNow(): bool
     {
-        if ($this->sendoutType == 'automated' || $this->sendoutType == 'recurring') {
+        if ($this->sendoutType == 'automated' || $this->sendoutType == 'recurring' || $this->sendoutType == 'transactional') {
             return $this->schedule->canSendNow($this);
         }
 

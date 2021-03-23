@@ -5,8 +5,6 @@
 
 namespace putyourlightson\campaign\services;
 
-use craft\helpers\DateTimeHelper;
-use craft\helpers\StringHelper;
 use craft\queue\Queue;
 use craft\records\Element_SiteSettings;
 use craft\web\View;
@@ -19,10 +17,7 @@ use putyourlightson\campaign\elements\SendoutElement;
 use putyourlightson\campaign\elements\CampaignElement;
 use putyourlightson\campaign\events\SendoutEmailEvent;
 use putyourlightson\campaign\jobs\SendoutJob;
-use putyourlightson\campaign\models\AutomatedScheduleModel;
-use putyourlightson\campaign\models\RecurringScheduleModel;
 use putyourlightson\campaign\models\MailingListTypeModel;
-use putyourlightson\campaign\base\ScheduleModel;
 use putyourlightson\campaign\records\ContactCampaignRecord;
 use putyourlightson\campaign\records\ContactMailingListRecord;
 use putyourlightson\campaign\records\ContactRecord;
@@ -34,7 +29,8 @@ use craft\errors\ElementNotFoundException;
 use craft\helpers\Db;
 use craft\helpers\UrlHelper;
 use craft\mail\Mailer;
-use putyourlightson\campaign\models\ContactMailingListModel;
+use putyourlightson\campaign\models\PendingTransactionalSendoutModel;
+use putyourlightson\campaign\records\PendingTransactionalSendoutRecord;
 use putyourlightson\campaign\records\SendoutRecord;
 use Throwable;
 use yii\base\Exception;
@@ -186,6 +182,10 @@ class SendoutsService extends Component
             $query->andWhere([ 'contactId' => $sendout->getContactIds() ]);
         }
 
+        if ($sendout->sendoutType == 'transactional') {
+            $query->andWhere([ 'contactId' => PendingTransactionalSendoutRecord::find()->select('contactId')->where(['sendoutId' => $sendout->id ])]);
+        }
+
         // Ensure contacts have not complained or bounced (in contact record)
         $query->innerJoin(ContactRecord::tableName().' contact', '[[contact.id]] = [[contactId]]')
             ->andWhere([
@@ -200,11 +200,14 @@ class SendoutsService extends Component
         // Exclude contacts subscribed to sendout's excluded mailing lists
         $query->andWhere(['not', ['contactId' => $this->_getExcludedMailingListRecipientsQuery($sendout)]]);
 
-        // Check whether we should exclude recipients that were sent to today only
-        $excludeSentTodayOnly = $sendout->sendoutType == 'recurring' && $sendout->schedule->canSendToContactsMultipleTimes;
+        // Transactional sendouts can be sent as many times as needed
+        if ($sendout->sendoutType != 'transactional') {
+            // Check whether we should exclude recipients that were sent to today only
+            $excludeSentTodayOnly = $sendout->sendoutType == 'recurring' && $sendout->schedule->canSendToContactsMultipleTimes;
 
-        // Exclude sent recipients
-        $query->andWhere(['not', ['contactId' => $this->_getSentRecipientsQuery($sendout, $excludeSentTodayOnly)]]);
+            // Exclude sent recipients
+            $query->andWhere(['not', ['contactId' => $this->_getSentRecipientsQuery($sendout, $excludeSentTodayOnly)]]);
+        }
 
         if ($sendout->sendoutType == 'automated') {
             $automatedSchedule = $sendout->schedule;
@@ -253,57 +256,33 @@ class SendoutsService extends Component
     }
 
     /**
-     * Saves and validates sendout
+     * Saves a pending transactional sendout
      *
-     * @return array
+     * @param PendingTransactionalSendoutModel $pendingSendout
+     *
+     * @return bool
      */
-    public function saveSendout(SendoutElement $sendout, array $scheduleParams = null) 
+    public function savePendingTransactionalSendout(PendingTransactionalSendoutModel $model): bool
     {
-        if ($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring' ) {
-            if ($sendout->sendoutType == 'automated') {
-                $sendout->schedule = new AutomatedScheduleModel($scheduleParams);
-            }
-            else {
-                $sendout->schedule = new RecurringScheduleModel($scheduleParams);
-            }
+        $pendingRecord = new PendingTransactionalSendoutRecord();
+        $pendingRecord->setAttributes($model->getAttributes(), false);
 
-            // Convert end date and time of day or set to null
-            $sendout->schedule->endDate = DateTimeHelper::toDateTime($sendout->schedule->endDate) ?: null;
-            $sendout->schedule->timeOfDay = DateTimeHelper::toDateTime($sendout->schedule->timeOfDay) ?: null;
+        return $pendingRecord->save();
+    }
 
-            // Validate schedule
-            $sendout->schedule->validate();
+    public function deletePendingTransactionalContactSendout($sendout, $contact)
+    {
+        $record = PendingTransactionalSendoutRecord::find()
+            ->where([ 
+                'sendoutId' => $sendout->id,
+                'contactId' => $contact->id
+            ])
+            ->orderBy([ 'dateCreated' => SORT_ASC ])
+            ->one();
 
-            if ($sendout->schedule->hasErrors()) {
-                return [
-                    'success' => false,
-                    'sendout' => $sendout
-                ];
-            }
+        if ($record) {
+            $record->delete();
         }
-
-        $sendout->validate();
-
-        if ($sendout->hasErrors()) {
-            Craft::warning("Validation failed");
-            return [
-                'success' => false,
-                'sendout' => $sendout
-            ];
-        }
-
-        // Save it without propagating across all sites
-        if (!Craft::$app->getElements()->saveElement($sendout, true, false)) {
-            return [
-                'success' => false,
-                'sendout' => $sendout
-            ];
-        }
-
-        return [
-            'success' => true,
-            'sendout' => $sendout
-        ];
     }
 
     /**
@@ -328,11 +307,12 @@ class SendoutsService extends Component
                 ->where(Db::parseDateParam('sendDate', $now, '<='))
                 ->all();
 
+
             /** @var SendoutElement $sendout */
             foreach ($sendouts as $sendout) {
                 // Queue regular and scheduled sendouts, automated and recurring sendouts if pro version and the sendout can send now
                 if ($sendout->sendoutType == 'regular' || $sendout->sendoutType == 'scheduled'
-                    || (($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring')
+                    || (($sendout->sendoutType == 'automated' || $sendout->sendoutType == 'recurring' || $sendout->sendoutType == 'transactional')
                         && Campaign::$plugin->getIsPro() && $sendout->getCanSendNow()
                     )
                 ) {
@@ -352,6 +332,7 @@ class SendoutsService extends Component
                     $count++;
                 }
             }
+
         }
 
         return $count;
@@ -432,7 +413,7 @@ class SendoutsService extends Component
             $contactCampaignRecord->contactId = $contact->id;
             $contactCampaignRecord->sendoutId = $sendout->id;
         }
-        elseif ($contactCampaignRecord->sent !== null) {
+        elseif ($contactCampaignRecord->sent !== null && $sendout->sendoutType != 'transactional') {
             // Ensure this is a recurring sendout that can be sent to contacts multiple times
             if (!($sendout->sendoutType == 'recurring' && $sendout->schedule->canSendToContactsMultipleTimes)) {
                 return;
@@ -676,6 +657,7 @@ class SendoutsService extends Component
             // Update send status to pending if automated or recurring or not fully complete
             if ($sendout->sendoutType == 'automated' ||
                 $sendout->sendoutType == 'recurring' ||
+                $sendout->sendoutType == 'transactional' ||
                 $this->getPendingRecipientCount($sendout) > 0
             ) {
                 $sendout->sendStatus = SendoutElement::STATUS_PENDING;
