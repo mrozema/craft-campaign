@@ -28,6 +28,7 @@ use craft\base\Component;
 use craft\errors\ElementNotFoundException;
 use craft\helpers\Db;
 use craft\helpers\UrlHelper;
+use craft\helpers\DateTimeHelper;
 use craft\mail\Mailer;
 use putyourlightson\campaign\models\PendingTransactionalSendoutModel;
 use putyourlightson\campaign\records\PendingTransactionalSendoutRecord;
@@ -153,6 +154,28 @@ class SendoutsService extends Component
             ->select('sendStatus')
             ->where(['id' => $sendoutId])
             ->scalar();
+    }
+
+    public function cleanupPendingRecipientsForSendout(SendoutElement $sendout)
+    {
+        // TODO: make this a configurable value. For now just defaulting to anyting older than 24 hours.
+        // This would only really happen if:
+        //  - the user unsubscribed from the list
+        //  - email bounced/complained
+        //  - some other strange situation, like a contact was added to the list but a segment prevented sending to them, etc.
+        $interval = DateTimeHelper::secondsToInterval(24*60*60);
+        $expire = DateTimeHelper::currentUTCDateTime();
+        $pastTime = $expire->sub($interval);
+
+        $expiredRecords = PendingTransactionalSendoutRecord::find()
+            ->where(['sendoutId' => $sendout->id])
+            ->andWhere(['<', 'dateCreated', Db::prepareDateForDb($pastTime)])
+            ->all();
+
+        foreach ($expiredRecords as $record) {
+            Craft::warning("Deleting pending transactional sendout record for contact {$record->contactId} and sendout {$record->sendoutId}");
+            $record->delete();
+        }
     }
 
     /**
@@ -661,6 +684,10 @@ class SendoutsService extends Component
                 $this->getPendingRecipientCount($sendout) > 0
             ) {
                 $sendout->sendStatus = SendoutElement::STATUS_PENDING;
+            }
+
+            if ($sendout->sendoutType == 'transactional') {
+                $this->cleanupPendingRecipientsForSendout($sendout);
             }
         }
 
