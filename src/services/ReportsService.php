@@ -439,8 +439,7 @@ class ReportsService extends Component
         // Get sendouts
         $data['sendouts'] = SendoutElement::find()
             ->mailingListId($mailingListId)
-            ->orderBy(['sendDate' => SORT_DESC])
-            ->limit(100)
+            ->orderBy(['sendDate' => SORT_ASC])
             ->all();
 
         // Get first contact mailing list

@@ -29,6 +29,7 @@ use craft\errors\ElementNotFoundException;
 use craft\helpers\Db;
 use craft\helpers\UrlHelper;
 use craft\helpers\DateTimeHelper;
+use craft\helpers\StringHelper;
 use craft\mail\Mailer;
 use putyourlightson\campaign\models\PendingTransactionalSendoutModel;
 use putyourlightson\campaign\records\PendingTransactionalSendoutRecord;
@@ -685,15 +686,29 @@ class SendoutsService extends Component
             ) {
                 $sendout->sendStatus = SendoutElement::STATUS_PENDING;
             }
+        }
 
-            if ($sendout->sendoutType == 'transactional') {
-                $this->cleanupPendingRecipientsForSendout($sendout);
+        if ($sendout->sendoutType == 'transactional') {
+            $this->cleanupPendingRecipientsForSendout($sendout);
+        }
+
+        // Get campaign
+        $campaign = $sendout->getCampaign();
+
+        if ($campaign !== null) {
+            // Update HTML and plaintext body
+            $contact = new ContactElement();
+            $sendout->htmlBody = $campaign->getHtmlBody($contact, $sendout);
+            $sendout->plaintextBody = $campaign->getPlaintextBody($contact, $sendout);
+
+            if (Craft::$app->getDb()->getIsMysql()) {
+                // Encode any 4-byte UTF-8 characters
+                $sendout->htmlBody = StringHelper::encodeMb4($sendout->htmlBody);
+                $sendout->plaintextBody = StringHelper::encodeMb4($sendout->plaintextBody);
             }
         }
 
-        $this->_updateSendoutRecord($sendout, ['sendStatus']);
-        
-        $campaign = $sendout->getCampaign();
+        $this->_updateSendoutRecord($sendout, ['sendStatus', 'htmlBody', 'plaintextBody']);
 
         // Update campaign recipients
         $recipients = ContactCampaignRecord::find()

@@ -63,31 +63,6 @@ class CampaignsService extends Component
     }
 
     /**
-     * Returns campaign by slug
-     *
-     * @param string $campaignSlug
-     *
-     * @return CampaignElement|null
-     */
-    public function getCampaignBySlug(string $campaignSlug): ?CampaignElement
-    {
-        // Get site ID from element site settings
-        $el = Element_SiteSettings::find()
-            ->where(['slug' => $campaignSlug])->one();
-
-        if ($el === null) {
-            return null;
-        }
-
-        $campaign = CampaignElement::find()
-            ->id($el->elementId)
-            ->siteId($el->siteId)
-            ->one();
-        
-        return $campaign;
-    }
-
-    /**
      * Adds a contact interaction
      *
      * @param ContactElement $contact
